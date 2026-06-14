@@ -37,10 +37,16 @@ python3 -m http.server 8000
 ## The game
 
 - **Goal:** survive endless waves of robotic sentinels in the Sector-7 grid.
-- **Two enemy types:** cyan grunts and pink heavies (tougher, hit harder).
-- Pick up **+HP** (green cross) and **+AMMO** (amber cell) drops scattered each wave.
+- **Enemy types:** cyan grunts, pink heavies (tougher, hit harder), and a hulking
+  **MEGA-SENTINEL boss** that storms in every 5th wave with its own health bar.
+- **Power-ups:** **+HP** (green cross), **+AMMO** (amber cell), and **⚡ OVERCHARGE**
+  (cyan bolt) — temporary rapid-fire, bonus damage, and damage resistance.
+- **Combo multiplier:** chain kills without getting hit to stack up to an 8× score
+  multiplier. Take a hit and the streak resets.
+- **Juice:** screen shake, controller haptics (vibration), floating damage/score
+  popups, distance fog, muzzle flash, particle bursts, and procedural synth SFX.
+- **Persistent high score** saved on-device (localStorage) and shown on the menu.
 - Clearing a wave heals you a bit and spawns a bigger one. Chase that high score.
-- Live **minimap**, distance fog, muzzle flash, particle hits, and procedural synth SFX.
 
 ## Why it's built this way
 
