@@ -28,6 +28,10 @@ python3 -m http.server 8000
 
 ## Controls
 
+**Play in landscape** — hold your phone sideways. The game pauses and shows a
+"rotate to play" prompt in portrait, and tries to lock to landscape where the
+browser allows it.
+
 | Action | Touch (phone) | Desktop |
 |--------|---------------|---------|
 | Move / strafe | Left-side virtual **joystick** | `W A S D` |
