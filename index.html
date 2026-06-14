@@ -31,11 +31,20 @@
   #rotate { z-index:60; }
   #rotIcon { font-size:clamp(3rem,18vw,6rem); margin-bottom:.3em; animation:tip 1.6s ease-in-out infinite; }
   @keyframes tip { 0%,100%{ transform:rotate(0deg);} 50%{ transform:rotate(90deg);} }
+  #update { position:fixed; top:0; left:0; right:0; z-index:70; display:none;
+            align-items:center; justify-content:center; gap:.5em; padding:.7em 1em;
+            background:linear-gradient(90deg,#00f0ff,#ff2bd1); color:#05000d; font-weight:bold;
+            letter-spacing:.06em; font-size:clamp(.72rem,3.4vw,1rem); cursor:pointer; pointer-events:auto;
+            box-shadow:0 0 24px rgba(0,240,255,.55); animation:slidedown .4s ease; }
+  #update.show { display:flex; }
+  #update b { text-decoration:underline; }
+  @keyframes slidedown { from{ transform:translateY(-100%);} to{ transform:translateY(0);} }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="flash"></div>
+<div id="update">⬆ NEW VERSION READY — <b>TAP TO UPDATE</b></div>
 
 <div id="menu" class="overlay">
   <h1>NEON SIEGE</h1>
@@ -929,9 +938,30 @@ document.getElementById('againBtn').addEventListener('click',()=>{
 });
 resize();
 
-// register service worker for offline play (works when served; harmless from file://)
+// Service worker: offline play + "tap to update" banner (no more double-refresh).
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  const banner=document.getElementById('update');
+  let waitingWorker=null, refreshing=false;
+  function showUpdate(w){ waitingWorker=w; banner.classList.add('show'); }
+  banner.addEventListener('click', ()=>{
+    if(waitingWorker){ banner.innerHTML='UPDATING…'; waitingWorker.postMessage({type:'SKIP_WAITING'}); }
+  });
+  // When the new worker takes control, reload once to run the fresh build.
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(refreshing) return; refreshing=true; location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    if(reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+    reg.addEventListener('updatefound', ()=>{
+      const nw=reg.installing; if(!nw) return;
+      nw.addEventListener('statechange', ()=>{
+        // A new version finished installing while an old one still controls the page.
+        if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdate(nw);
+      });
+    });
+    // Re-check for a new deploy whenever the player returns to the tab.
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reg.update().catch(()=>{}); });
+  }).catch(()=>{});
 }
 })();
 </script>
