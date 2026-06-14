@@ -170,13 +170,28 @@ function makeTexture(kind){
 }
 const textures=[null, makeTexture(1), makeTexture(2), makeTexture(3)];
 
-// ---- Render buffer (internal res, scaled up for that crunchy retro look) ----
-let W=0,H=0, buf, bufData, bufU32, zbuf, bgU32;
-const RENDER_SCALE = 0.65;   // ~30% higher internal resolution than the old 0.5
+// Synthwave grid floor texture (tiles into a glowing perspective grid when cast)
+function makeFloorTex(){
+  const c=document.createElement('canvas'); c.width=c.height=TEX; const g=c.getContext('2d');
+  g.fillStyle='#0a0824'; g.fillRect(0,0,TEX,TEX);
+  const rad=g.createRadialGradient(TEX/2,TEX/2,2,TEX/2,TEX/2,TEX*0.7);
+  rad.addColorStop(0,'#170a33'); rad.addColorStop(1,'#05030f');
+  g.fillStyle=rad; g.fillRect(0,0,TEX,TEX);
+  g.strokeStyle='#00f0ff'; g.lineWidth=3; g.strokeRect(0,0,TEX,TEX);      // bright cell border
+  g.strokeStyle='rgba(255,43,209,.55)'; g.lineWidth=1;                    // magenta cross
+  g.beginPath(); g.moveTo(TEX/2,0); g.lineTo(TEX/2,TEX); g.moveTo(0,TEX/2); g.lineTo(TEX,TEX/2); g.stroke();
+  return new Uint32Array(g.getImageData(0,0,TEX,TEX).data.buffer);
+}
+const floorTex = makeFloorTex();
+
+// ---- Render buffer (full-res; an adaptive scaler keeps the framerate smooth) ----
+let W=0,H=0, buf, bufData, bufU32, zbuf, bgU32, vignette=null;
+let quality = 1;             // 0.55..1 — auto-tuned each second by the frame timer
+const BASE_SCALE = 1.0;      // render at full CSS-pixel width (was 0.65)
 function resize(){
-  // Internal render width (more pixels = sharper; capped for phone performance)
-  W = Math.max(280, Math.min(640, Math.round(window.innerWidth*RENDER_SCALE)));
-  H = Math.max(160, Math.round(W * (window.innerHeight/window.innerWidth)));
+  const scale = BASE_SCALE * quality;
+  W = Math.max(320, Math.min(1024, Math.round(window.innerWidth*scale)));
+  H = Math.max(180, Math.round(W * (window.innerHeight/window.innerWidth)));
   canvas.style.width='100vw'; canvas.style.height='100vh';
   canvas.width=W; canvas.height=H;
   buf = ctx.createImageData(W,H);
@@ -184,6 +199,8 @@ function resize(){
   bufU32 = new Uint32Array(bufData.buffer);
   zbuf = new Float32Array(W);
   ctx.imageSmoothingEnabled=false;
+  vignette = ctx.createRadialGradient(W/2,H*0.52,H*0.28, W/2,H*0.55,H*0.95);
+  vignette.addColorStop(0,'rgba(0,0,0,0)'); vignette.addColorStop(1,'rgba(0,0,0,0.42)');
   buildBackground();
   layoutControls();
   checkOrientation();
@@ -349,8 +366,9 @@ function blip(type){
 // RENDERING
 //==================================================================================
 function render(){
-  // --- Ceiling & floor: copy the pre-baked synthwave background in one shot ---
+  // --- Sky/ceiling: pre-baked gradient + stars; floor: textured perspective grid ---
   bufU32.set(bgU32);
+  castFloor();
 
   // --- Walls (DDA raycast per column) ---
   for(let x=0;x<W;x++){
@@ -431,6 +449,8 @@ function render(){
   } else {
     ctx.putImageData(buf,0,0);
   }
+  // cinematic vignette (cached gradient)
+  if(vignette){ ctx.fillStyle=vignette; ctx.fillRect(0,0,W,H); }
   // overcharge cyan vignette
   if(overchargeT>0){
     const a=Math.min(0.28, overchargeT>1?0.18:overchargeT*0.18) + Math.sin(performance.now()/80)*0.04;
@@ -440,6 +460,28 @@ function render(){
   }
   drawWeapon();
   drawHUD();
+}
+
+// Textured floor casting — fills the lower half with a fog-faded neon grid.
+function castFloor(){
+  const halfH=H>>1, posZ=0.5*H;
+  const rdx0=player.dirX-player.planeX, rdy0=player.dirY-player.planeY;
+  const sdx=(player.planeX*2)/W, sdy=(player.planeY*2)/W; // per-column step at distance 1
+  const posX=player.x, posY=player.y;
+  for(let y=halfH+1;y<H;y++){
+    const rowDist=posZ/(y-halfH);
+    const stepX=rowDist*sdx, stepY=rowDist*sdy;
+    let fx=posX+rowDist*rdx0, fy=posY+rowDist*rdy0;
+    let fog=1.8/rowDist; if(fog>1)fog=1;          // distance fade to dark
+    const off=y*W;
+    for(let x=0;x<W;x++){
+      const tix=((fx*TEX)|0)&(TEX-1), tiy=((fy*TEX)|0)&(TEX-1);
+      fx+=stepX; fy+=stepY;
+      const c=floorTex[tiy*TEX+tix];
+      const r=(c&0xff)*fog, g=((c>>8)&0xff)*fog, b=((c>>16)&0xff)*fog;
+      bufU32[off+x]=0xff000000|((b|0)<<16)|((g|0)<<8)|(r|0);
+    }
+  }
 }
 
 function drawSprite(s,dsx,dex,dsy,dey,sw,sh,screenX,top,ty){
@@ -648,7 +690,8 @@ function drawHUD(){
   ctx.restore();
 }
 function drawMinimap(cw,ch){
-  const ms=Math.min(cw,ch)*0.22, cell=ms/MW, ox=cw-ms-cw*0.02, oy=ch-ms-ch*0.02 - ch*0.10;
+  // top-left corner for easy glancing (nudged in a little to clear notches/safe areas)
+  const ms=Math.min(cw,ch)*0.22, cell=ms/MW, ox=cw*0.025, oy=ch*0.04;
   ctx.save(); ctx.globalAlpha=0.75;
   ctx.fillStyle='#05000d'; ctx.fillRect(ox-2,oy-2,ms+4,ms+4);
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
@@ -745,8 +788,8 @@ function update(dt){
     tryMove(nx,ny);
   }
   gunBob += moving? dt*10 : 0;
-  // look (touch drag accumulates)
-  if(lookDX){ rotate(lookDX*0.0032); lookDX=0; }
+  // look (touch drag accumulates) — sensitivity raised to better match move speed
+  if(lookDX){ rotate(lookDX*0.0042); lookDX=0; }
 
   muzzle=Math.max(0,muzzle-dt*6);
   gunKick=Math.max(0,gunKick-dt*6);
@@ -806,14 +849,22 @@ function update(dt){
   }
 }
 
-let running=false, rafId=0;
+let running=false, rafId=0, frameAccum=0, frameCount=0;
 function loop(t){
   if(!running) return;
   // In portrait on a phone, hold the game (controls are cramped) until rotated back.
   if(portrait && isTouch){ lastT=t; rafId=requestAnimationFrame(loop); return; }
   const dt=Math.min(0.05,(t-lastT)/1000)||0.016; lastT=t;
+  const w0=performance.now();
   update(dt);
   render();
+  // Adaptive resolution: trim internal res if frames get heavy, restore it when there's headroom.
+  frameAccum += performance.now()-w0; frameCount++;
+  if(frameCount>=45){
+    const avg=frameAccum/frameCount; frameAccum=0; frameCount=0;
+    if(avg>20 && quality>0.55){ quality=Math.max(0.55, quality-0.12); resize(); }
+    else if(avg<11 && quality<1){ quality=Math.min(1, quality+0.08); resize(); }
+  }
   rafId=requestAnimationFrame(loop);
 }
 
